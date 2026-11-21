@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ritiro Oggi - Portalettere</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b3d91">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root{--blu:#0b3d91;--giallo:#ffcc00;--bg:#f4f6fb;--tx:#1a1a1a}
+  *{box-sizing:border-box} body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+  header{background:var(--blu);color:#fff;padding:16px;padding-top:calc(16px + env(safe-area-inset-top));border-bottom:4px solid var(--giallo)}
+  h1{margin:0;font-size:1.2rem} main{padding:16px;max-width:480px;margin:auto}
+  .card{background:#fff;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 4px #0002}
+  input{width:100%;padding:12px;font-size:1rem;border:1px solid #bbb;border-radius:8px;margin:8px 0}
+  button{width:100%;padding:14px;font-size:1rem;font-weight:700;border:0;border-radius:10px;background:var(--giallo);color:var(--blu);cursor:pointer}
+  button.sec{background:var(--blu);color:#fff;margin-top:8px}
+  .conta{font-size:3rem;font-weight:800;color:var(--blu);text-align:center}
+  .ok{color:#1b7a2f;font-weight:700} .avviso{background:#fff7d6;border:1px solid var(--giallo)}
+  ul{list-style:none;padding:0;margin:0} li{padding:10px 0;border-bottom:1px solid #eee;display:flex;justify-content:space-between}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header><h1>📮 Ritiro Oggi – Portalettere</h1></header>
+<main>
+
+  <!-- Guida iPhone: le push funzionano solo se l'app è installata in Home -->
+  <div id="iosGuida" class="card avviso hide">
+    <b>iPhone:</b> per ricevere le notifiche tocca <b>Condividi</b> (quadrato con freccia)
+    → <b>Aggiungi a Home</b>, poi apri l'app dall'icona sulla Home (serve iOS 16.4 o successivo).
+  </div>
+
+  <!-- Primo accesso -->
+  <section id="setup" class="card">
+    <b>Configurazione (una sola volta)</b>
+    <input id="idInput" placeholder="ID Portalettere / Codice Zona" autocapitalize="characters">
+    <button id="btnAttiva">Attiva notifiche</button>
+    <p id="msgSetup"></p>
+  </section>
+
+  <!-- Schermata attiva -->
+  <section id="attiva" class="hide">
+    <div class="card">
+      <div class="ok">● Notifiche attive – <span id="idShow"></span></div>
+      <div class="conta" id="conta">0</div>
+      <div style="text-align:center">nuove prenotazioni</div>
+      <button class="sec" id="btnApri">Apri gestione prenotazioni</button>
+    </div>
+    <div class="card"><b>Ultimi codici spedizione</b><ul id="lista"></ul></div>
+    <button class="sec" id="btnReset" style="background:#888">Cambia ID</button>
+  </section>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ========== CONFIGURAZIONE: INSERISCI LE TUE CHIAVI ========== */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD0HO_uIMkmRH60tU2SZlRsmK0xfizmR8M",
+  authDomain: "app-ritiro-oggi---portalettere.firebaseapp.com",
+  projectId: "app-ritiro-oggi---portalettere",
+  messagingSenderId: "1000347001952",
+  appId: "1:1000347001952:web:0239d27f697927aaf70f05"
+};
+const VAPID_KEY = "BJB86ZQqnubw9YqnGL_gC0GUlgcO0UOXpFJizlXUy74OeM6uo2uUtlYzRKecJcaup379lUoS6b0yAATi4BQNhAM";            // Cloud Messaging > Web Push certificates
+const LINK_BASE = "const LINK_BASE = "https://posteitaliane.sharepoint.com/:u:/r/sites/MonitoringCenterRitiroOggi/Shared%20Documents/Ritiro_Oggi_Monitoring_Center.html?d=w0b433a74361841afbe867fc027418bf2&csf=1&web=1&e=JqfTgJ&sp=https%3A%2F%2Fposteitaliane.sharepoint.com%2Fsites%2FMonitoringCenterRitiroOggi"; // link di riserva
+/* ============================================================== */
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.firestore();
+const $ = (id) => document.getElementById(id);
+const LS = { id: "pt_id", lista: "pt_lista" };
+
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const standalone = window.navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+if (isIOS && !standalone) $("iosGuida").classList.remove("hide");
+
+// Link univoco preconfigurato: index.html?id=ZONA123
+const idUrl = new URLSearchParams(location.search).get("id");
+if (idUrl) localStorage.setItem(LS.id, idUrl.trim().toUpperCase());
+
+const getLista = () => JSON.parse(localStorage.getItem(LS.lista) || "[]");
+const setLista = (l) => localStorage.setItem(LS.lista, JSON.stringify(l.slice(0, 30)));
+
+// Bip con Web Audio API (app aperta)
+function bip() {
+  try {
+    const c = new (window.AudioContext || window.webkitAudioContext)();
+    const o = c.createOscillator(), g = c.createGain();
+    o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.3;
+    o.start(); o.stop(c.currentTime + 0.25);
+  } catch (e) {}
+}
+
+function disegna() {
+  const id = localStorage.getItem(LS.id);
+  $("setup").classList.toggle("hide", !!id);
+  $("attiva").classList.toggle("hide", !id);
+  if (!id) return;
+  $("idShow").textContent = id;
+  const l = getLista();
+  $("conta").textContent = l.length;
+  $("lista").innerHTML = l.map(x => `<li><b>${x.codice}</b><span>${x.ora}</span></li>`).join("") || "<li>Nessuna prenotazione</li>";
+  if ("setAppBadge" in navigator) (l.length ? navigator.setAppBadge(l.length) : navigator.clearAppBadge()).catch(()=>{});
+}
+
+// Attivazione: permesso, token FCM, salvataggio su Firestore
+async function attiva() {
+  const id = ($("idInput").value || localStorage.getItem(LS.id) || "").trim().toUpperCase();
+  if (!id) { $("msgSetup").textContent = "Inserisci l'ID Portalettere."; return; }
+  try {
+    if (isIOS && !standalone) throw new Error("Su iPhone installa prima l'app in Home (vedi avviso).");
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") throw new Error("Permesso notifiche negato.");
+    const reg = await navigator.serviceWorker.register("service-worker.js");
+    await navigator.serviceWorker.ready;
+    const token = await firebase.messaging().getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
+    await db.collection("tokens").doc(id).set({ token, aggiornato: new Date().toISOString() });
+    localStorage.setItem(LS.id, id);
+    disegna();
+  } catch (e) { $("msgSetup").textContent = "Errore: " + e.message; }
+}
+
+// Messaggi con app aperta: bip + aggiunta alla lista
+function ascoltaForeground() {
+  firebase.messaging().onMessage((p) => {
+    const d = p.data || {};
+    const l = getLista();
+    l.unshift({ codice: d.codiceSpedizione, link: d.linkSharePoint, ora: new Date().toLocaleTimeString("it-IT", {hour:"2-digit",minute:"2-digit"}) });
+    setLista(l); bip(); disegna();
+  });
+}
+
+// All'apertura: recupera le notifiche arrivate in background
+async function sincronizza() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) return;
+  const n = await reg.getNotifications();
+  const l = getLista();
+  n.forEach(x => {
+    if (x.data && x.data.codice && !l.some(y => y.codice === x.data.codice))
+      l.unshift({ codice: x.data.codice, link: x.data.link, ora: new Date(x.timestamp).toLocaleTimeString("it-IT", {hour:"2-digit",minute:"2-digit"}) });
+  });
+  setLista(l); disegna();
+}
+
+// Apri SharePoint e azzera badge
+$("btnApri").onclick = async () => {
+  const id = localStorage.getItem(LS.id), l = getLista();
+  let link = (l[0] && l[0].link) || (LINK_BASE + (LINK_BASE.includes("?") ? "&" : "?") + "id=" + encodeURIComponent(id));
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (reg) (await reg.getNotifications()).forEach(n => n.close());
+  setLista([]); disegna();
+  location.href = link;
+};
+$("btnAttiva").onclick = attiva;
+$("btnReset").onclick = () => { localStorage.removeItem(LS.id); setLista([]); disegna(); };
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("service-worker.js").then(() => { ascoltaForeground(); sincronizza(); });
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) sincronizza(); });
+disegna();
+</script>
+</body>
+</html>
