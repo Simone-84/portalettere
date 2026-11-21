@@ -37,13 +37,19 @@ messaging.onBackgroundMessage(async (payload) => {
   await aggiornaBadge();
 });
 
-// Tocco sulla notifica: chiude, aggiorna badge, apre SharePoint
+// Tocco sulla notifica: apre (o riporta in primo piano) l'app Ritiro Oggi
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const link = (event.notification.data && event.notification.data.link) || "./index.html";
+  const d = event.notification.data || {};
   event.waitUntil((async () => {
     await aggiornaBadge();
-    await clients.openWindow(link);
+    const aperte = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (aperte.length > 0) {
+      aperte[0].postMessage({ codice: d.codice, link: d.link });
+      return aperte[0].focus();
+    }
+    const url = self.registration.scope + "index.html?codice=" + encodeURIComponent(d.codice || "") + "&link=" + encodeURIComponent(d.link || "");
+    return clients.openWindow(url);
   })());
 });
 

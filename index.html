@@ -163,6 +163,24 @@ $("btnReset").onclick = () => { localStorage.removeItem(LS.id); setLista([]); di
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js").then(() => { ascoltaForeground(); sincronizza(); });
 }
+// Aggiunge un codice alla lista (quando si tocca la notifica)
+function aggiungiCodice(codice, link) {
+  if (!codice) return;
+  if (link && !link.startsWith("https://posteitaliane.sharepoint.com/")) link = "";
+  const l = getLista();
+  if (!l.some(y => y.codice === codice)) {
+    l.unshift({ codice, link, ora: new Date().toLocaleTimeString("it-IT", {hour:"2-digit",minute:"2-digit"}) });
+    setLista(l);
+  }
+  disegna();
+}
+const pCodice = new URLSearchParams(location.search).get("codice");
+if (pCodice) {
+  aggiungiCodice(pCodice, new URLSearchParams(location.search).get("link"));
+  history.replaceState(null, "", location.pathname);
+}
+if ("serviceWorker" in navigator)
+  navigator.serviceWorker.addEventListener("message", (e) => aggiungiCodice(e.data.codice, e.data.link));
 document.addEventListener("visibilitychange", () => { if (!document.hidden) sincronizza(); });
 disegna();
 </script>
