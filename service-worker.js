@@ -26,7 +26,7 @@ async function aggiornaBadge() {
 messaging.onBackgroundMessage(async (payload) => {
   const d = payload.data || {};
   await self.registration.showNotification("Nuova prenotazione", {
-    body: "Codice spedizione: " + (d.codiceSpedizione || "-"),
+    body: "Hai una nuova prenotazione",
     icon: "icon-192.png",
     badge: "icon-192.png",
     tag: d.codiceSpedizione,          // un codice = una notifica
